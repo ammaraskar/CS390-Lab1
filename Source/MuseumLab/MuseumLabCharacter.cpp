@@ -231,7 +231,6 @@ void AMuseumLabCharacter::OnSelectObject() {
     }
 
     SelectedObject = !SelectedObject;
-    GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, "yolo");
 }
 
 void AMuseumLabCharacter::OnScaleObject(float Rate) {
