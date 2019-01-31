@@ -12,10 +12,72 @@
 #include "MotionControllerComponent.h"
 #include "XRMotionControllerBase.h" // for FXRMotionControllerBase::RightHandSourceId
 
+#include <Runtime/Engine/Classes/Engine/Engine.h>
+#include <EngineGlobals.h>
+#include <DrawDebugHelpers.h>
+#include "EngineUtils.h"
+#include "Components/StaticMeshComponent.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogFPChar, Warning, All);
 
 //////////////////////////////////////////////////////////////////////////
 // AMuseumLabCharacter
+
+void AMuseumLabCharacter::Tick(float DeltaTime)
+{
+    Super::Tick(DeltaTime);
+
+    //Hit contains information about what the raycast hit.
+    FHitResult Hit;
+
+    //The length of the ray in units.
+    //For more flexibility you can expose a public variable in the editor
+    float RayLength = 1000;
+
+    //The Origin of the raycast
+    FVector StartLocation = FirstPersonCameraComponent->GetComponentLocation();
+
+    //The EndLocation of the raycast
+    FVector EndLocation = StartLocation + (FirstPersonCameraComponent->GetForwardVector() * RayLength);
+
+    //Collision parameters. The following syntax means that we don't want the trace to be complex
+    FCollisionQueryParams CollisionParameters;
+    CollisionParameters.AddIgnoredActor(this);
+    CollisionParameters.AddIgnoredComponent(GetCapsuleComponent());
+
+    //Perform the line trace
+    //The ECollisionChannel parameter is used in order to determine what we are looking for when performing the raycast
+    if (GetWorld()->LineTraceSingleByChannel(Hit, StartLocation, EndLocation, ECC_Visibility, CollisionParameters))
+    {
+        if (Hit.bBlockingHit)
+        {
+            AActor* result = Hit.GetActor();
+            if (result->GetName().StartsWith("cake")) {
+                auto newRotation = result->GetActorRotation();
+                newRotation.Yaw += (60 * DeltaTime);
+                result->SetActorRotation(newRotation);
+            }
+            else if (result->GetName().StartsWith("companion")) {
+                // vary scale from 1.0 to 2.0
+                float newScale = (sin(GetWorld()->GetTimeSeconds()) + 2) / 2;
+                result->SetActorScale3D(FVector(newScale, newScale, newScale));
+            }
+            else if (result->GetName().StartsWith("turret")) {
+                auto currPoss = result->GetActorLocation();
+                //float newY = 10 * (sin(GetWorld()->GetTimeSeconds()) + 240);
+                currPoss.Z += 0.1;
+
+                result->SetActorLocation(currPoss);
+            }
+        }
+        ;
+    }
+
+    //DrawDebugLine is used in order to see the raycast we performed
+    //The boolean parameter used here means that we want the lines to be persistent so we can see the actual raycast
+    //The last parameter is the width of the lines.
+    // DrawDebugLine(GetWorld(), StartLocation, EndLocation, FColor::Green, true, -1, 0, 1.f);
+}
 
 AMuseumLabCharacter::AMuseumLabCharacter()
 {
@@ -103,6 +165,15 @@ void AMuseumLabCharacter::BeginPlay()
 		VR_Gun->SetHiddenInGame(true, true);
 		Mesh1P->SetHiddenInGame(false, true);
 	}
+
+    // Locate the actors
+    for (TActorIterator<AActor> ActorItr(GetWorld()); ActorItr; ++ActorItr)
+    {
+        AActor *actor = *ActorItr;
+        if (actor->GetName().StartsWith("radio")) {
+            RadioActor = actor;
+        }
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -114,16 +185,22 @@ void AMuseumLabCharacter::SetupPlayerInputComponent(class UInputComponent* Playe
 	check(PlayerInputComponent);
 
 	// Bind jump events
-	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
-	PlayerInputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
+	//PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
+	//PlayerInputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
 
 	// Bind fire event
-	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &AMuseumLabCharacter::OnFire);
+	//PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &AMuseumLabCharacter::OnFire);
+
+    PlayerInputComponent->BindAction("SelectComponent", IE_Pressed, this, &AMuseumLabCharacter::OnSelectObject);
 
 	// Enable touchscreen input
 	EnableTouchscreenMovement(PlayerInputComponent);
 
 	PlayerInputComponent->BindAction("ResetVR", IE_Pressed, this, &AMuseumLabCharacter::OnResetVR);
+
+    PlayerInputComponent->BindAxis("Scale", this, &AMuseumLabCharacter::OnScaleObject);
+    PlayerInputComponent->BindAxis("Rotate", this, &AMuseumLabCharacter::OnRotateObject);
+    PlayerInputComponent->BindAxis("Position", this, &AMuseumLabCharacter::OnPositionObject);
 
 	// Bind movement events
 	PlayerInputComponent->BindAxis("MoveForward", this, &AMuseumLabCharacter::MoveForward);
@@ -136,6 +213,52 @@ void AMuseumLabCharacter::SetupPlayerInputComponent(class UInputComponent* Playe
 	PlayerInputComponent->BindAxis("TurnRate", this, &AMuseumLabCharacter::TurnAtRate);
 	PlayerInputComponent->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
 	PlayerInputComponent->BindAxis("LookUpRate", this, &AMuseumLabCharacter::LookUpAtRate);
+}
+
+void AMuseumLabCharacter::OnSelectObject() {
+    // turn outline on and off
+    TArray<USkeletalMeshComponent*> Components;
+    RadioActor->GetComponents<USkeletalMeshComponent>(Components);
+    for (int32 i = 0; i < Components.Num(); i++)
+    {
+        USkeletalMeshComponent* StaticMeshComponent = Components[i];
+        if (SelectedObject) {
+            StaticMeshComponent->SetRenderCustomDepth(false);
+        }
+        else {
+            StaticMeshComponent->SetRenderCustomDepth(true);
+        }
+    }
+
+    SelectedObject = !SelectedObject;
+    GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, "yolo");
+}
+
+void AMuseumLabCharacter::OnScaleObject(float Rate) {
+    if (!SelectedObject) {
+        return;
+    }
+    float currScale = RadioActor->GetActorScale().X;
+    currScale += (Rate * 0.1);
+    RadioActor->SetActorScale3D(FVector(currScale, currScale, currScale));
+}
+
+void AMuseumLabCharacter::OnRotateObject(float Rate) {
+    if (!SelectedObject) {
+        return;
+    }
+    auto currRotate = RadioActor->GetActorRotation();
+    currRotate.Yaw += (Rate * 0.6);
+    RadioActor->SetActorRotation(currRotate);
+}
+
+void AMuseumLabCharacter::OnPositionObject(float Rate) {
+    if (!SelectedObject) {
+        return;
+    }
+    auto currPos = RadioActor->GetActorLocation();
+    currPos.Z += (Rate * 0.8);
+    RadioActor->SetActorLocation(currPos);
 }
 
 void AMuseumLabCharacter::OnFire()

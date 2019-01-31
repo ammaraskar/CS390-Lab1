@@ -52,6 +52,8 @@ protected:
 	virtual void BeginPlay();
 
 public:
+    virtual void Tick(float DeltaTime) override;
+
 	/** Base turn rate, in deg/sec. Other scaling may affect final turn rate. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Camera)
 	float BaseTurnRate;
@@ -81,6 +83,14 @@ public:
 	uint32 bUsingMotionControllers : 1;
 
 protected:
+    void OnSelectObject();
+
+    void OnScaleObject(float);
+    void OnRotateObject(float);
+    void OnPositionObject(float);
+
+    bool SelectedObject = false;
+    AActor* RadioActor;
 	
 	/** Fires a projectile. */
 	void OnFire();
